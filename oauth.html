@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>تسجيل دخول YouTube</title>
+</head>
+<body>
+  <button onclick="login()">تسجيل الدخول باستخدام Google</button>
+
+  <script>
+    const CLIENT_ID = "حط هنا الـ Client ID بتاعك";
+    const REDIRECT_URI = "https://seiftechnon.github.io/oauth.html";
+    const SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
+    const RESPONSE_TYPE = "token";
+
+    function login() {
+      const authUrl =
+        `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}` +
+        `&redirect_uri=${REDIRECT_URI}` +
+        `&scope=${SCOPE}` +
+        `&response_type=${RESPONSE_TYPE}`;
+      window.location = authUrl;
+    }
+
+    // بعد تسجيل الدخول، نقرأ التوكن من الرابط
+    if (window.location.hash) {
+      const params = new URLSearchParams(window.location.hash.substring(1));
+      const token = params.get("access_token");
+      if (token) {
+        localStorage.setItem("yt_token", token);
+        document.body.innerHTML = "<h2>تم تسجيل الدخول بنجاح!</h2><button onclick='logout()'>تسجيل الخروج</button>";
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem("yt_token");
+      location.reload();
+    }
+  </script>
+</body>
+</html>
