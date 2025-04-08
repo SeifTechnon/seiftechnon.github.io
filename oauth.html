@@ -1,40 +1,103 @@
 <!DOCTYPE html>
-<html>
+<html lang="ar">
 <head>
-  <title>تسجيل دخول YouTube</title>
+    <meta charset="UTF-8">
+    <title>Seif Technon - YouTube OAuth</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 50px;
+            background: #f9f9f9;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 18px;
+            background-color: #4285F4;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        code, p {
+            direction: ltr;
+        }
+        img {
+            border-radius: 50%;
+            margin-top: 15px;
+        }
+    </style>
 </head>
 <body>
-  <button onclick="login()">تسجيل الدخول باستخدام Google</button>
+    <h2>تسجيل الدخول باستخدام حساب Google</h2>
+    <button onclick="signIn()">تسجيل الدخول</button>
 
-  <script>
-    const CLIENT_ID = "حط هنا الـ Client ID بتاعك";
-    const REDIRECT_URI = "https://seiftechnon.github.io/oauth.html";
-    const SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
-    const RESPONSE_TYPE = "token";
+    <div id="channelInfo"></div>
 
-    function login() {
-      const authUrl =
-        `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}` +
-        `&redirect_uri=${REDIRECT_URI}` +
-        `&scope=${SCOPE}` +
-        `&response_type=${RESPONSE_TYPE}`;
-      window.location = authUrl;
-    }
+    <script>
+        const CLIENT_ID = "783665155303-24ca3sdd9c8qqj0gqu6372bbu6hqd4md.apps.googleusercontent.com"; // ← لا تنسَ تغييره
+        const REDIRECT_URI = "https://seiftechnon.github.io/oauth.html";
+        const SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
 
-    // بعد تسجيل الدخول، نقرأ التوكن من الرابط
-    if (window.location.hash) {
-      const params = new URLSearchParams(window.location.hash.substring(1));
-      const token = params.get("access_token");
-      if (token) {
-        localStorage.setItem("yt_token", token);
-        document.body.innerHTML = "<h2>تم تسجيل الدخول بنجاح!</h2><button onclick='logout()'>تسجيل الخروج</button>";
-      }
-    }
+        function signIn() {
+            const authUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=token&scope=${SCOPE}`;
+            window.location.href = authUrl;
+        }
 
-    function logout() {
-      localStorage.removeItem("yt_token");
-      location.reload();
-    }
-  </script>
+        function handleRedirect() {
+            const hash = window.location.hash.substring(1);
+            const params = new URLSearchParams(hash);
+            const accessToken = params.get("access_token");
+
+            if (accessToken) {
+                localStorage.setItem("yt_token", accessToken);
+                showAccessToken(accessToken);
+            } else if (localStorage.getItem("yt_token")) {
+                showAccessToken(localStorage.getItem("yt_token"));
+            }
+        }
+
+        function showAccessToken(token) {
+            document.body.innerHTML += `
+                <p>تم تسجيل الدخول بنجاح! <br> تم حفظ access_token في localStorage</p>
+                <code>${token}</code>
+            `;
+            getChannelInfo(token);
+        }
+
+        async function getChannelInfo(token) {
+            try {
+                const res = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true', {
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                });
+
+                const data = await res.json();
+
+                if (data.items && data.items.length > 0) {
+                    const channel = data.items[0];
+                    const name = channel.snippet.title;
+                    const subs = channel.statistics.subscriberCount;
+                    const icon = channel.snippet.thumbnails.default.url;
+
+                    document.getElementById("channelInfo").innerHTML = `
+                        <hr>
+                        <h3>بيانات قناتك:</h3>
+                        <img src="${icon}" width="80" height="80" alt="Channel Icon">
+                        <p><b>${name}</b></p>
+                        <p>المشتركين: ${subs}</p>
+                    `;
+                } else {
+                    document.getElementById("channelInfo").innerText = "لم يتم العثور على قناة.";
+                }
+            } catch (err) {
+                console.error(err);
+                document.getElementById("channelInfo").innerText = "حدث خطأ أثناء جلب البيانات.";
+            }
+        }
+
+        window.onload = handleRedirect;
+    </script>
 </body>
 </html>
