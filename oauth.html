@@ -21,48 +21,124 @@
         }
         code, p {
             direction: ltr;
+            word-break: break-all;
         }
         img {
             border-radius: 50%;
             margin-top: 15px;
         }
+        .token-container {
+            margin: 20px 0;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 5px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
     <h2>تسجيل الدخول باستخدام حساب Google</h2>
-    <button onclick="signIn()">تسجيل الدخول</button>
-
+    <button id="signInBtn" onclick="signIn()">تسجيل الدخول</button>
+    
+    <div id="tokenInfo" class="token-container" style="display: none;"></div>
     <div id="channelInfo"></div>
+    <div id="errorInfo" class="error"></div>
 
     <script>
-        const CLIENT_ID = "783665155303-24ca3sdd9c8qqj0gqu6372bbu6hqd4md.apps.googleusercontent.com"; // ← لا تنسَ تغييره
+        const CLIENT_ID = "783665155303-24ca3sdd9c8qqj0gqu6372bbu6hqd4md.apps.googleusercontent.com"; // تأكد من تغييره
         const REDIRECT_URI = "https://seiftechnon.github.io/oauth.html";
         const SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
-
+        
+        // إنشاء وتخزين state للحماية من CSRF
+        function generateState() {
+            const array = new Uint8Array(16);
+            window.crypto.getRandomValues(array);
+            return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+        
         function signIn() {
-            const authUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=token&scope=${SCOPE}`;
+            const state = generateState();
+            sessionStorage.setItem('oauth_state', state);
+            
+            const authUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=token&scope=${SCOPE}&state=${state}`;
             window.location.href = authUrl;
         }
 
         function handleRedirect() {
+            document.getElementById('errorInfo').textContent = '';
+            
+            // التحقق من وجود أخطاء في الاستجابة
+            const urlParams = new URLSearchParams(window.location.search);
+            const error = urlParams.get('error');
+            if (error) {
+                document.getElementById('errorInfo').textContent = `حدث خطأ: ${error}`;
+                return;
+            }
+            
             const hash = window.location.hash.substring(1);
             const params = new URLSearchParams(hash);
             const accessToken = params.get("access_token");
-
+            const state = params.get("state");
+            
+            // التحقق من صحة state للحماية من CSRF
+            const savedState = sessionStorage.getItem('oauth_state');
+            if (state && savedState && state !== savedState) {
+                document.getElementById('errorInfo').textContent = "خطأ في التحقق من الأمان!";
+                return;
+            }
+            
             if (accessToken) {
-                localStorage.setItem("yt_token", accessToken);
+                // حفظ التوكن مع وقت انتهاء الصلاحية
+                const expiresIn = params.get("expires_in") || 3600;
+                const expiryTime = Date.now() + expiresIn * 1000;
+                
+                const tokenData = {
+                    token: accessToken,
+                    expiry: expiryTime
+                };
+                
+                localStorage.setItem("yt_token_data", JSON.stringify(tokenData));
                 showAccessToken(accessToken);
-            } else if (localStorage.getItem("yt_token")) {
-                showAccessToken(localStorage.getItem("yt_token"));
+                getChannelInfo(accessToken);
+                
+                // إزالة الهاش من URL
+                history.replaceState(null, null, window.location.pathname);
+            } else {
+                // محاولة استخدام توكن محفوظ إذا كان موجودًا ولم تنتهِ صلاحيته
+                const tokenDataStr = localStorage.getItem("yt_token_data");
+                
+                if (tokenDataStr) {
+                    const tokenData = JSON.parse(tokenDataStr);
+                    
+                    if (tokenData.expiry > Date.now()) {
+                        showAccessToken(tokenData.token);
+                        getChannelInfo(tokenData.token);
+                    } else {
+                        document.getElementById('signInBtn').textContent = "إعادة تسجيل الدخول (انتهت الصلاحية)";
+                        document.getElementById('errorInfo').textContent = "انتهت صلاحية الجلسة، يرجى تسجيل الدخول مرة أخرى";
+                    }
+                }
             }
         }
 
         function showAccessToken(token) {
-            document.body.innerHTML += `
-                <p>تم تسجيل الدخول بنجاح! <br> تم حفظ access_token في localStorage</p>
-                <code>${token}</code>
+            const tokenInfoDiv = document.getElementById('tokenInfo');
+            tokenInfoDiv.style.display = 'block';
+            tokenInfoDiv.innerHTML = `
+                <p>تم تسجيل الدخول بنجاح!</p>
+                <p>Access Token (تم حفظه تلقائيًا):</p>
+                <code>${token.substring(0, 15)}...${token.substring(token.length - 15)}</code>
+                <p>التوكن كامل مخفي لأسباب أمنية</p>
             `;
-            getChannelInfo(token);
+            
+            // تغيير زر تسجيل الدخول
+            document.getElementById('signInBtn').textContent = "تم تسجيل الدخول";
+            document.getElementById('signInBtn').disabled = true;
         }
 
         async function getChannelInfo(token) {
@@ -72,13 +148,20 @@
                         Authorization: `Bearer ${token}`
                     }
                 });
+                
+                // التحقق من رمز الاستجابة
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(`رمز الخطأ: ${res.status}, السبب: ${errorData.error?.message || 'غير معروف'}`);
+                }
 
                 const data = await res.json();
 
                 if (data.items && data.items.length > 0) {
                     const channel = data.items[0];
                     const name = channel.snippet.title;
-                    const subs = channel.statistics.subscriberCount;
+                    const subs = parseInt(channel.statistics.subscriberCount).toLocaleString('ar-EG');
+                    const views = parseInt(channel.statistics.viewCount).toLocaleString('ar-EG');
                     const icon = channel.snippet.thumbnails.default.url;
 
                     document.getElementById("channelInfo").innerHTML = `
@@ -87,13 +170,22 @@
                         <img src="${icon}" width="80" height="80" alt="Channel Icon">
                         <p><b>${name}</b></p>
                         <p>المشتركين: ${subs}</p>
+                        <p>المشاهدات: ${views}</p>
+                        <p>معرف القناة: ${channel.id}</p>
                     `;
                 } else {
-                    document.getElementById("channelInfo").innerText = "لم يتم العثور على قناة.";
+                    document.getElementById("channelInfo").innerHTML = "<p>لم يتم العثور على قناة.</p>";
                 }
             } catch (err) {
                 console.error(err);
-                document.getElementById("channelInfo").innerText = "حدث خطأ أثناء جلب البيانات.";
+                document.getElementById("errorInfo").textContent = `حدث خطأ: ${err.message}`;
+                
+                // إذا كان الخطأ 401، فهذا يعني أن التوكن انتهت صلاحيته
+                if (err.message.includes('401')) {
+                    localStorage.removeItem("yt_token_data");
+                    document.getElementById('signInBtn').textContent = "إعادة تسجيل الدخول (انتهت الصلاحية)";
+                    document.getElementById('signInBtn').disabled = false;
+                }
             }
         }
 
